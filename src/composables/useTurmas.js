@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import electronApi from '@/services/electronApi';
+import db from '@/services/localStorageService';
 
 export function useTurmas() {
   const turmas = ref([]);
@@ -10,7 +10,12 @@ export function useTurmas() {
     loading.value = true;
     error.value = null;
     try {
-      turmas.value = await electronApi.turmas.listar();
+      const data = db.getTurmas();
+      const alunos = db.getAlunos();
+      turmas.value = data.map(t => ({
+        ...t,
+        alunosCount: alunos.filter(a => a.turmaId === t.id).length
+      }));
     } catch (err) {
       console.error('Error fetching turmas:', err);
       error.value = err.message || 'Falha ao buscar as turmas.';
@@ -23,9 +28,26 @@ export function useTurmas() {
     loading.value = true;
     error.value = null;
     try {
-      const created = await electronApi.turmas.criar(payload);
+      if (!payload || !payload.nome || !payload.nome.trim()) {
+        throw new Error('Informe o nome da turma.');
+      }
+      const nomeNorm = payload.nome.trim().toLowerCase();
+      const data = db.getTurmas();
+      
+      const isDuplicate = data.some(t => t.nome.trim().toLowerCase() === nomeNorm);
+      if (isDuplicate) {
+        throw new Error('Já existe uma turma cadastrada com este nome.');
+      }
+
+      const newTurma = {
+        id: Date.now().toString(),
+        nome: payload.nome.trim()
+      };
+
+      data.push(newTurma);
+      db.saveTurmas(data);
       await listarTurmas();
-      return created;
+      return newTurma;
     } catch (err) {
       console.error('Error creating turma:', err);
       error.value = err.message || 'Falha ao criar turma.';
@@ -39,9 +61,30 @@ export function useTurmas() {
     loading.value = true;
     error.value = null;
     try {
-      const edited = await electronApi.turmas.editar(payload);
+      if (!payload || !payload.id || !payload.nome || !payload.nome.trim()) {
+        throw new Error('Nome da turma é obrigatório.');
+      }
+      const nomeNorm = payload.nome.trim().toLowerCase();
+      const data = db.getTurmas();
+
+      const isDuplicate = data.some(t => t.id !== payload.id && t.nome.trim().toLowerCase() === nomeNorm);
+      if (isDuplicate) {
+        throw new Error('Já existe outra turma cadastrada com este nome.');
+      }
+
+      const index = data.findIndex(t => t.id === payload.id);
+      if (index === -1) {
+        throw new Error('Turma não encontrada.');
+      }
+
+      data[index] = {
+        ...data[index],
+        nome: payload.nome.trim()
+      };
+
+      db.saveTurmas(data);
       await listarTurmas();
-      return edited;
+      return data[index];
     } catch (err) {
       console.error('Error editing turma:', err);
       error.value = err.message || 'Falha ao editar turma.';
@@ -55,7 +98,18 @@ export function useTurmas() {
     loading.value = true;
     error.value = null;
     try {
-      await electronApi.turmas.remover(id);
+      if (!id) {
+        throw new Error('ID da turma é obrigatório.');
+      }
+      const alunos = db.getAlunos();
+      const hasStudents = alunos.some(a => a.turmaId === id);
+      if (hasStudents) {
+        throw new Error('Não é possível excluir a turma porque existem alunos vinculados.');
+      }
+
+      const data = db.getTurmas();
+      const filtered = data.filter(t => t.id !== id);
+      db.saveTurmas(filtered);
       await listarTurmas();
       return true;
     } catch (err) {

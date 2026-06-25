@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import electronApi from '@/services/electronApi';
+import db from '@/services/localStorageService';
 
 export function useDashboard() {
   const resumo = ref({
@@ -16,7 +16,16 @@ export function useDashboard() {
     loading.value = true;
     error.value = null;
     try {
-      resumo.value = await electronApi.dashboard.resumo();
+      const turmas = db.getTurmas();
+      const alunos = db.getAlunos();
+      const emprestimos = db.getEmprestimos();
+
+      resumo.value = {
+        totalTurmas: turmas.length,
+        totalAlunos: alunos.length,
+        totalEmprestimosAbertos: emprestimos.filter(e => e.status === 'emprestado').length,
+        totalEmprestimosDevolvidos: emprestimos.filter(e => e.status === 'devolvido').length
+      };
     } catch (err) {
       console.error('Error fetching dashboard summary:', err);
       error.value = err.message || 'Falha ao carregar o resumo do dashboard.';
@@ -29,7 +38,20 @@ export function useDashboard() {
     loading.value = true;
     error.value = null;
     try {
-      emprestimosAbertos.value = await electronApi.dashboard.emprestimosAbertos();
+      const emprestimos = db.getEmprestimos();
+      const alunos = db.getAlunos();
+      const turmas = db.getTurmas();
+
+      const abertos = emprestimos.filter(e => e.status === 'emprestado');
+      emprestimosAbertos.value = abertos.map(emp => {
+        const aluno = alunos.find(a => a.id === emp.alunoId);
+        const turma = aluno ? turmas.find(t => t.id === aluno.turmaId) : null;
+        return {
+          ...emp,
+          alunoNome: aluno ? aluno.nome : 'Aluno Excluído',
+          turmaNome: turma ? turma.nome : 'Sem Turma'
+        };
+      });
     } catch (err) {
       console.error('Error fetching active loans:', err);
       error.value = err.message || 'Falha ao carregar empréstimos em aberto.';

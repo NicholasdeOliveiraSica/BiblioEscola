@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import electronApi from '@/services/electronApi';
+import db from '@/services/localStorageService';
 
 export function useEmprestimos() {
   const emprestimos = ref([]);
@@ -10,7 +10,20 @@ export function useEmprestimos() {
     loading.value = true;
     error.value = null;
     try {
-      emprestimos.value = await electronApi.emprestimos.listar();
+      const data = db.getEmprestimos();
+      const alunos = db.getAlunos();
+      const turmas = db.getTurmas();
+
+      emprestimos.value = data.map(emp => {
+        const aluno = alunos.find(a => a.id === emp.alunoId);
+        const turma = aluno ? turmas.find(t => t.id === aluno.turmaId) : null;
+        return {
+          ...emp,
+          alunoNome: aluno ? aluno.nome : 'Aluno Excluído',
+          turmaNome: turma ? turma.nome : 'Sem Turma',
+          turmaId: turma ? turma.id : null
+        };
+      });
     } catch (err) {
       console.error('Error fetching loans:', err);
       error.value = err.message || 'Falha ao buscar os empréstimos.';
@@ -23,9 +36,39 @@ export function useEmprestimos() {
     loading.value = true;
     error.value = null;
     try {
-      const created = await electronApi.emprestimos.criar(payload);
+      if (!payload) {
+        throw new Error('Dados do empréstimo inválidos.');
+      }
+      if (!payload.alunoId) {
+        throw new Error('Selecione um aluno para registrar o empréstimo.');
+      }
+      if (!payload.livro || !payload.livro.trim()) {
+        throw new Error('Informe o nome do livro.');
+      }
+      if (!payload.dataEmprestimo) {
+        throw new Error('A data do empréstimo é obrigatória.');
+      }
+
+      const alunos = db.getAlunos();
+      const studentExists = alunos.some(a => a.id === payload.alunoId);
+      if (!studentExists) {
+        throw new Error('O aluno selecionado não existe.');
+      }
+
+      const data = db.getEmprestimos();
+      const newEmp = {
+        id: Date.now().toString(),
+        alunoId: payload.alunoId,
+        livro: payload.livro.trim(),
+        dataEmprestimo: payload.dataEmprestimo,
+        dataDevolucao: null,
+        status: 'emprestado'
+      };
+
+      data.push(newEmp);
+      db.saveEmprestimos(data);
       await listarEmprestimos();
-      return created;
+      return newEmp;
     } catch (err) {
       console.error('Error creating loan:', err);
       error.value = err.message || 'Falha ao registrar empréstimo.';
@@ -39,9 +82,25 @@ export function useEmprestimos() {
     loading.value = true;
     error.value = null;
     try {
-      const returned = await electronApi.emprestimos.devolver(id);
+      if (!id) {
+        throw new Error('ID do empréstimo é obrigatório.');
+      }
+
+      const data = db.getEmprestimos();
+      const index = data.findIndex(e => e.id === id);
+      if (index === -1) {
+        throw new Error('Empréstimo não encontrado.');
+      }
+
+      data[index] = {
+        ...data[index],
+        dataDevolucao: new Date().toISOString().split('T')[0], // YYYY-MM-DD
+        status: 'devolvido'
+      };
+
+      db.saveEmprestimos(data);
       await listarEmprestimos();
-      return returned;
+      return data[index];
     } catch (err) {
       console.error('Error returning loan:', err);
       error.value = err.message || 'Falha ao registrar devolução do livro.';
@@ -55,7 +114,13 @@ export function useEmprestimos() {
     loading.value = true;
     error.value = null;
     try {
-      await electronApi.emprestimos.remover(id);
+      if (!id) {
+        throw new Error('ID do empréstimo é obrigatório.');
+      }
+
+      const data = db.getEmprestimos();
+      const filtered = data.filter(e => e.id !== id);
+      db.saveEmprestimos(filtered);
       await listarEmprestimos();
       return true;
     } catch (err) {
